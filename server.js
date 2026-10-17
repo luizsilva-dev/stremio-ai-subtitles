@@ -73,7 +73,7 @@ fs.mkdirSync(CACHE_DIR, { recursive: true });
 
 const manifestBase = {
   id: 'dev.luizsilva.ai-subtitles',
-  version: '2.1.0',
+  version: '2.1.0', // x-release-please-version
   name: 'AI Subtitles',
   description: 'Translates English subtitles into your language with your own AI (OpenAI, Claude, Gemini, Groq, OpenRouter, DeepSeek, Mistral, Grok or any OpenAI-compatible endpoint).',
   resources: ['subtitles'],

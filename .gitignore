@@ -7,3 +7,4 @@ node_modules/
 # notes and docs stay local; only the README is published
 *.md
 !README.md
+!CHANGELOG.md
