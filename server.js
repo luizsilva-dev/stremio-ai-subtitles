@@ -217,10 +217,12 @@ const srtHits = new Map();
 function tooManyRequests(ip, table = ipHits, limit = REQS_PER_IP_MIN) {
   const now = Date.now();
   const list = (table.get(ip) || []).filter(t => now - t < 60000);
-  list.push(now);
   if (table.has(ip)) table.delete(ip); else capMap(table, l => l.some(t => now - t < 60000));
   table.set(ip, list);
-  return list.length > limit;
+  // refused requests aren't recorded, so a list never holds more than `limit` entries
+  if (list.length >= limit) return true;
+  list.push(now);
+  return false;
 }
 
 // calls to OpenSubtitles and Cinemeta (lists, title info and source subtitle downloads): a small share per IP
@@ -740,6 +742,9 @@ let readyBytes = 0;
 function remember(k, body) {
   const size = body.length;
   if (size > SRT_MEMORY / 4) return;
+  // two concurrent reads of the same file can both store it; count it once
+  const prev = ready.get(k);
+  if (prev) { ready.delete(k); readyBytes -= prev.size; }
   while (readyBytes + size > SRT_MEMORY && ready.size) {
     const [old, v] = ready.entries().next().value;
     ready.delete(old);
