@@ -416,7 +416,8 @@ understood at first read, in the 2-3 seconds it stays on screen.
 - Never leave unexplained English acronyms or codes. Never add notes, parentheses or explanations.
 - Keep it short; prefer shorter wording when the meaning is the same.
 - Keep the speakers' tone: slang, swearing and humor stay, adapted to natural equivalents.
-- Keep names of people and places. Keep line breaks (\\n) where they are.
+- Keep names of people and places. Keep line breaks (\\n) where they are, and tags like <i></i>
+  around the same words.
 
 You receive a JSON object mapping ids to subtitle lines. Reply ONLY with a JSON object with exactly
 the same ids, each value being the translation. Do not merge or skip ids.` +
@@ -500,7 +501,7 @@ const buildSrt = cues => cues.map((c, i) => `${i + 1}\n${c.time}\n${c.text}\n`).
 // Formatting never goes to the AI. Positions like {\an8} (top of the screen, used over the opening
 // credits), <i>, <b>, <u> and <font> come off the start and end of each line before translating and
 // go back on the translated line, so no model can drop them or break the JSON with a backslash.
-// Tags in the middle of a line have no place in the translated sentence, so they are dropped.
+// Only a tag in the middle of a line goes with the text, since just the AI knows where the words went.
 const TAG = /<\/?[a-z][^>]*>|\{\\[^}]*\}/gi;
 const LEAD = /^(\s*-\s*)?((?:<[a-z][^>]*>|\{\\[^}]*\}|\s)*)/i;
 const TRAIL = /(?:<\/[a-z][^>]*>|\{\\[^}]*\}|\s)*$/i;
@@ -513,10 +514,16 @@ function splitTags(text) {
     let rest = l.slice(m[0].length);
     const t = rest.match(TRAIL)[0];
     rest = rest.slice(0, rest.length - t.length);
-    // an opening tag that closes mid-line (a coloured speaker name) would spread over the whole line
+    // a pair that opens or closes mid-line (a coloured speaker name, one word in italics) stays in the
+    // text for the AI, which keeps it around the same words
     const shut = new Set([...rest.matchAll(/<\/([a-z]+)>/gi)].map(x => x[1].toLowerCase()));
-    const lead = m[2].replace(/<([a-z]+)[^>]*>/gi, (x, n) => (shut.has(n.toLowerCase()) ? '' : x)).replace(/\s+(?=<|\{|$)/g, '').trim();
-    return { lead, trail: t.trim(), text: (m[1] || '') + rest.replace(TAG, '') };
+    const opened = new Set([...rest.matchAll(/<([a-z]+)[^>]*>/gi)].map(x => x[1].toLowerCase()));
+    let keepLead = '', keepTrail = '';
+    const lead = m[2].replace(/<([a-z]+)[^>]*>/gi, (x, n) => (shut.has(n.toLowerCase()) ? (keepLead += x, '') : x)).replace(/\s+(?=<|\{|$)/g, '').trim();
+    const trail = t.replace(/<\/([a-z]+)>/gi, (x, n) => (opened.has(n.toLowerCase()) ? (keepTrail += x, '') : x)).trim();
+    // positions ({\an8} and the like) never go to the AI: a lone backslash in its answer breaks the JSON
+    const mid = (keepLead + rest + keepTrail).replace(/\{\\[^}]*\}/g, '');
+    return { lead, trail, text: (m[1] || '') + mid };
   });
   return { text: lines.map(l => l.text).join('\n'), lines };
 }
