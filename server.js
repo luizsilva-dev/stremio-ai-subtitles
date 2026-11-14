@@ -755,7 +755,8 @@ function issue(k, v) {
 
 // OpenSubtitles answers are reused for 10 minutes, so repeated requests don't hit them again
 const listCache = new Map(); // url → { at, subs }
-async function englishSubs(type, id, extra, ip) {
+// every subtitle OpenSubtitles lists for this video (all languages); cached for 10 minutes
+async function sourceSubs(type, id, extra, ip) {
   const url = `${OPENSUBS}/subtitles/${type}/${encodeURIComponent(id)}${extra ? `/${extra}` : ''}.json`;
   const hit = listCache.get(url);
   if (hit && Date.now() - hit.at < 600000) return hit.subs;
@@ -767,20 +768,24 @@ async function englishSubs(type, id, extra, ip) {
     throw e;
   }
   const subs = (Array.isArray(data.subtitles) ? data.subtitles : [])
-    .filter(s => s && s.lang === 'eng' && typeof s.url === 'string' && /^https:\/\/[\w.-]+\.strem\.io\//.test(s.url));
+    .filter(s => s && typeof s.lang === 'string' && typeof s.url === 'string' && /^https:\/\/[\w.-]+\.strem\.io\//.test(s.url));
   if (listCache.size > 5000) listCache.clear();
   listCache.set(url, { at: Date.now(), subs });
   return subs;
 }
 
 async function handleSubtitles(cfg, token, type, id, extra, ip) {
-  const english = (await englishSubs(type, id, extra, ip)).slice(0, cfg.n);
+  const all = await sourceSubs(type, id, extra, ip);
+  const english = all.filter(s => s.lang === 'eng').slice(0, cfg.n);
   if (!english.length) return [];
+  // When OpenSubtitles already has this language, the user will most likely pick that one: the AI
+  // option is still listed, but nothing is translated until it is actually opened.
+  const nativeExists = cfg.l !== 'eng' && all.some(s => s.lang === cfg.l);
   const ctx = await titleContext(type, id, ip);
   return english.map((s, i) => {
     const key = keyFor(s.url);
     issue(`${cfg.l}/${key}`, { ctx, info: describeSource(s, i, english.length, cfg.l) });
-    if (i === 0) startTranslation(cfg, key, s.url, ctx, ip); // start translating the best option right away
+    if (i === 0 && !nativeExists) startTranslation(cfg, key, s.url, ctx, ip); // start translating the best option right away
     return {
       id: `ai-${cfg.l}-${key}`,
       lang: cfg.l,
