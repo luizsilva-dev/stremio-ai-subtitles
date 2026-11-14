@@ -416,7 +416,7 @@ understood at first read, in the 2-3 seconds it stays on screen.
 - Never leave unexplained English acronyms or codes. Never add notes, parentheses or explanations.
 - Keep it short; prefer shorter wording when the meaning is the same.
 - Keep the speakers' tone: slang, swearing and humor stay, adapted to natural equivalents.
-- Keep names of people and places. Keep line breaks (\\n) and tags like <i></i> where they are.
+- Keep names of people and places. Keep line breaks (\\n) where they are.
 
 You receive a JSON object mapping ids to subtitle lines. Reply ONLY with a JSON object with exactly
 the same ids, each value being the translation. Do not merge or skip ids.` +
@@ -496,6 +496,52 @@ function parseSrt(text) {
 }
 
 const buildSrt = cues => cues.map((c, i) => `${i + 1}\n${c.time}\n${c.text}\n`).join('\n');
+
+// Formatting never goes to the AI. Positions like {\an8} (top of the screen, used over the opening
+// credits), <i>, <b>, <u> and <font> come off the start and end of each line before translating and
+// go back on the translated line, so no model can drop them or break the JSON with a backslash.
+// Tags in the middle of a line have no place in the translated sentence, so they are dropped.
+const TAG = /<\/?[a-z][^>]*>|\{\\[^}]*\}/gi;
+const LEAD = /^(\s*-\s*)?((?:<[a-z][^>]*>|\{\\[^}]*\}|\s)*)/i;
+const TRAIL = /(?:<\/[a-z][^>]*>|\{\\[^}]*\}|\s)*$/i;
+
+function splitTags(text) {
+  TAG.lastIndex = 0;
+  if (!TAG.test(text)) return { text, lines: null };
+  const lines = text.split('\n').map(l => {
+    const m = l.match(LEAD);
+    let rest = l.slice(m[0].length);
+    const t = rest.match(TRAIL)[0];
+    rest = rest.slice(0, rest.length - t.length);
+    // an opening tag that closes mid-line (a coloured speaker name) would spread over the whole line
+    const shut = new Set([...rest.matchAll(/<\/([a-z]+)>/gi)].map(x => x[1].toLowerCase()));
+    const lead = m[2].replace(/<([a-z]+)[^>]*>/gi, (x, n) => (shut.has(n.toLowerCase()) ? '' : x)).replace(/\s+(?=<|\{|$)/g, '').trim();
+    return { lead, trail: t.trim(), text: (m[1] || '') + rest.replace(TAG, '') };
+  });
+  return { text: lines.map(l => l.text).join('\n'), lines };
+}
+
+function joinTags(lines, text) {
+  if (!lines) return text;
+  const out = text.split('\n');
+  // the AI split or merged lines: the first line keeps the opening tags (the position lives there),
+  // the last one the closing tags
+  const match = out.length === lines.length || lines.every(l => l.lead === lines[0].lead && l.trail === lines[0].trail);
+  const joined = out.map((l, i) => {
+    const f = match ? lines[Math.min(i, lines.length - 1)]
+      : { lead: i === 0 ? lines[0].lead : '', trail: i === out.length - 1 ? lines[lines.length - 1].trail : '' };
+    const dash = (l.match(/^\s*-\s*/) || [''])[0];
+    return dash + f.lead + l.slice(dash.length) + f.trail;
+  }).join('\n');
+  // whatever is still open gets closed at the end of the cue
+  const open = [];
+  for (const [, close, name] of joined.matchAll(/<(\/?)([a-z]+)[^>]*>/gi)) {
+    const n = name.toLowerCase();
+    if (!close) open.push(n);
+    else if (open.lastIndexOf(n) >= 0) open.splice(open.lastIndexOf(n), 1);
+  }
+  return joined + open.reverse().map(n => `</${n}>`).join('');
+}
 const srtMs = t => { const [h, m, x] = t.split(':'); const [sec, ms] = x.split(','); return ((+h * 60 + +m) * 60 + +sec) * 1000 + +ms; };
 const msSrt = ms => new Date(ms).toISOString().slice(11, 23).replace('.', ',');
 
@@ -593,7 +639,7 @@ function startTranslation(cfg, key, sourceUrl, ctx, ip) {
       job.cues = cues.map(c => ({ ...c }));
       const batches = [];
       for (let i = 0; i < cues.length; i += BATCH_SIZE) {
-        batches.push(cues.slice(i, i + BATCH_SIZE).map((c, j) => ({ idx: i + j, text: c.text })));
+        batches.push(cues.slice(i, i + BATCH_SIZE).map((c, j) => { const f = splitTags(c.text); return { idx: i + j, text: f.text, fmt: f.lines }; }));
       }
       job.total = batches.length;
       const system = systemPrompt(cfg.l, ctx);
@@ -604,7 +650,7 @@ function startTranslation(cfg, key, sourceUrl, ctx, ip) {
           while (next < batches.length && !stop.signal.aborted) {
             const b = batches[next++];
             const out = await translateBatch(cfg, system, b, deadline, stop.signal);
-            b.forEach((c, j) => { job.cues[c.idx].text = out[j]; job.cues[c.idx].ok = true; });
+            b.forEach((c, j) => { job.cues[c.idx].text = joinTags(c.fmt, out[j]); job.cues[c.idx].ok = true; });
             job.done++;
           }
         } catch (e) {
