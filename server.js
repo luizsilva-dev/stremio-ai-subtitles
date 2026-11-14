@@ -888,6 +888,7 @@ ol,ul{margin:0;padding-left:20px;color:var(--mut)}li{margin-bottom:6px}
 <small>Stored only inside your install link, encrypted. Translations use your account. Don't share your install link: it carries your key.</small>
 <label for="m">Model</label><div class="row"><input id="m" list="models" value="${esc(cur.m)}" placeholder=""><button class="sec" id="load" type="button">Load list</button></div>
 <datalist id="models"></datalist>
+<select id="msel" class="hide" aria-label="Pick a model"></select>
 <button class="sec" id="test" type="button">Test</button><div class="msg" id="testmsg"></div>
 </section>
 
@@ -927,6 +928,7 @@ $('p').onchange = () => {
   $('uwrap').classList.toggle('hide', $('p').value !== 'custom');
   if (!$('m').value || $('m').value === lastDefault) $('m').value = lastDefault = DEFAULTS[$('p').value] || '';
   $('models').innerHTML = '';
+  $('msel').innerHTML = ''; $('msel').classList.add('hide');
 };
 const body = () => JSON.stringify({ p: $('p').value, k: $('k').value, m: $('m').value, u: $('u').value, l: $('l').value, n: Number($('n').value), prev: PREV });
 const show = (el, ok, text) => { el.className = 'msg ' + (ok ? 'ok' : 'bad'); el.textContent = text; };
@@ -940,7 +942,11 @@ $('load').onclick = async () => {
   const r = await call('${esc(PUBLIC_URL)}/api/models', $('load'));
   if (r.error) return show($('testmsg'), false, r.error);
   $('models').replaceChildren(...r.models.map(m => { const o = document.createElement('option'); o.value = m; return o; }));
-  show($('testmsg'), true, r.models.length + ' models found. Tap the model field to pick one.');
+  const ph = document.createElement('option'); ph.value = ''; ph.textContent = '— Pick a model —'; ph.disabled = true; ph.selected = true;
+  $('msel').replaceChildren(ph, ...r.models.map(m => { const o = document.createElement('option'); o.value = m; o.textContent = m; return o; }));
+  $('msel').classList.remove('hide');
+  $('msel').onchange = () => { if ($('msel').value) $('m').value = $('msel').value; };
+  show($('testmsg'), true, r.models.length + ' models found. Pick one in the dropdown below (or type your own).');
 };
 $('test').onclick = async () => {
   const r = await call('${esc(PUBLIC_URL)}/api/test', $('test'));
