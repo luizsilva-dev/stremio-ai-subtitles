@@ -286,7 +286,9 @@ function validConfig(c, strict = false) {
   if (!LANG[l]) return fail('Choose a language.');
   const n = Number(c.n || 1);
   if (!(n >= 1 && n <= 5)) return fail('Invalid number of options.');
-  return { p, k, m, u, l, n };
+  // fallback only: list nothing when OpenSubtitles already has the language (absent in older install links)
+  const o = c.o === true || c.o === 1;
+  return o ? { p, k, m, u, l, n, o: 1 } : { p, k, m, u, l, n };
 }
 
 // ---------- custom endpoint guard (never point at the internal network) ----------
@@ -781,6 +783,7 @@ async function handleSubtitles(cfg, token, type, id, extra, ip) {
   // When OpenSubtitles already has this language, the user will most likely pick that one: the AI
   // option is still listed, but nothing is translated until it is actually opened.
   const nativeExists = cfg.l !== 'eng' && all.some(s => s.lang === cfg.l);
+  if (nativeExists && cfg.o) return [];
   const ctx = await titleContext(type, id, ip);
   return english.map((s, i) => {
     const key = keyFor(s.url);
@@ -883,6 +886,7 @@ select:focus,input:focus{outline:2px solid var(--acc);outline-offset:1px}
 .row{display:grid;grid-template-columns:1fr auto;gap:8px}.row button{margin-bottom:14px;width:auto;padding:0 14px}
 button,.btn{display:block;width:100%;text-align:center;padding:14px;border-radius:10px;border:0;background:var(--acc);color:#fff;font-size:16px;font-weight:600;text-decoration:none;cursor:pointer}
 button:active,.btn:active{transform:translateY(1px)}button:hover,.btn:hover{background:var(--accd)}
+.check{display:flex;gap:10px;align-items:center;margin:4px 0 6px;font-size:16px}.check input{width:auto;margin:0}
 button.sec{background:transparent;border:1px solid var(--line);color:var(--txt)}button.sec:hover{background:var(--line)}
 .out{display:none;margin-top:14px}.out.on{display:block}.msg{padding:12px;border-radius:10px;margin-top:12px;font-size:15px;display:none}
 .msg.ok{display:block;background:#17301f;border:1px solid #2b5a3b;color:#b8efc9}.msg.bad{display:block;background:#3a1719;border:1px solid #6b2a2e;color:#ffc9cb}
@@ -909,6 +913,8 @@ ol,ul{margin:0;padding-left:20px;color:var(--mut)}li{margin-bottom:6px}
 <small>This is also the language that shows up in Stremio's subtitle menu.</small>
 <label for="n">Options in the menu</label><select id="n">${[1, 2, 3, 4, 5].map(n => opt(n, n, n === cur.n)).join('')}</select>
 <small>Each option is a different English subtitle file (different video releases). Use more than 1 if the timing is off.</small>
+<label class="check"><input type="checkbox" id="o"${cur.o ? ' checked' : ''}> Only when there is no subtitle in my language</label>
+<small>When OpenSubtitles already has subtitles in this language, AI Subtitles stays out of the menu, so Stremio picks the existing one and nothing is spent on translation.</small>
 </section>
 
 <section><h2>Install</h2>
@@ -942,7 +948,7 @@ $('p').onchange = () => {
   $('models').innerHTML = '';
   $('msel').innerHTML = ''; $('msel').classList.add('hide');
 };
-const body = () => JSON.stringify({ p: $('p').value, k: $('k').value, m: $('m').value, u: $('u').value, l: $('l').value, n: Number($('n').value), prev: PREV });
+const body = () => JSON.stringify({ p: $('p').value, k: $('k').value, m: $('m').value, u: $('u').value, l: $('l').value, n: Number($('n').value), o: $('o').checked, prev: PREV });
 const show = (el, ok, text) => { el.className = 'msg ' + (ok ? 'ok' : 'bad'); el.textContent = text; };
 async function call(path, btn) {
   const label = btn.textContent; btn.disabled = true; btn.textContent = '…';

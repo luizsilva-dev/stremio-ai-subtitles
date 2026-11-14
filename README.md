@@ -9,6 +9,9 @@ A Stremio addon that translates English subtitles into your language with your o
   is turned into words anyone understands.
 - Your API key is stored only inside your install link, encrypted. No accounts.
 - Translations are private: each user only gets their own, deleted 24 hours after last use.
+- Saves AI calls when a subtitle in your language already exists on OpenSubtitles: nothing is
+  translated until you open the AI option, and with **Only when there is no subtitle in my
+  language** turned on, the AI option is not even listed for those titles.
 
 ## Install
 
